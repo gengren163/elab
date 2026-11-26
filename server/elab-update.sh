@@ -6,16 +6,16 @@
 #
 # 用法：
 #   ./elab-update.sh 6.1.0
-#   ACR_REGISTRY=registry.cn-hangzhou.aliyuncs.com ./elab-update.sh 6.1.0   # 用公网域名时
 #
+# ACR 域名默认自动从 CONF_FILE 的 image 行提取，兼容新个人版 crpi-*.personal.cr.aliyuncs.com
+# 和旧个人版 registry[-vpc].<region>.aliyuncs.com，不需要手工拼。
 # 可覆盖的环境变量：CONF_FILE（默认 /etc/elabftw.yml）、
-#                   ELAB_WEB_CONTAINER_NAME（默认 elabftw）、ACR_REGISTRY（默认 VPC 内网域名）
+#                   ELAB_WEB_CONTAINER_NAME（默认 elabftw）、ACR_REGISTRY（强制指定域名）
 set -euo pipefail
 
 VER="${1:?用法: $0 <eLabFTW版本>，例如 6.1.0}"
 CONF_FILE="${CONF_FILE:-/etc/elabftw.yml}"
 WEB_CONTAINER="${ELAB_WEB_CONTAINER_NAME:-elabftw}"
-ACR_HINT="${ACR_REGISTRY:-registry-vpc.cn-hangzhou.aliyuncs.com}"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "请用 root 运行（sudo $0 ...）" >&2
@@ -23,6 +23,15 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 if [ ! -f "$CONF_FILE" ]; then
   echo "找不到配置文件 $CONF_FILE" >&2
+  exit 1
+fi
+
+ACR_HINT="${ACR_REGISTRY:-}"
+if [ -z "$ACR_HINT" ]; then
+  ACR_HINT=$(grep -m1 'elabimg' "$CONF_FILE" | sed -E 's/^[[:space:]]*image:[[:space:]]*//; s#/.*##; s/[[:space:]]*$//' || true)
+fi
+if [ -z "$ACR_HINT" ]; then
+  echo "ERROR: 无法从 $CONF_FILE 提取 ACR 域名，请显式设置 ACR_REGISTRY=<域名>" >&2
   exit 1
 fi
 
@@ -37,8 +46,8 @@ echo "== 2/4 预检 ACR 可达 =="
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://${ACR_HINT}/v2/" || true)
 echo "https://${ACR_HINT}/v2/ -> ${code:-无响应}"
 if [ "$code" != "401" ] && [ "$code" != "200" ]; then
-  echo "ERROR: ACR 不可达。同地域 ECS 用 registry-vpc.<region>.aliyuncs.com；" >&2
-  echo "       跨地域用 registry.<region>.aliyuncs.com（可通过 ACR_REGISTRY 传入）。" >&2
+  echo "ERROR: ACR 不可达。请核对 ACR 控制台概览页上的 VPC 域名（同地域 ECS）或公网域名。" >&2
+  echo "       也可通过 ACR_REGISTRY=<域名> 显式指定。" >&2
   exit 1
 fi
 
